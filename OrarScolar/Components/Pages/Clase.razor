@@ -1,0 +1,69 @@
+@page "/clase"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IDbContextFactory<AppDb> Factory
+
+<PageTitle>Clase</PageTitle>
+<h1>Clase</h1>
+
+<SaveStatus Error="@error" Invalidated="@invalidated" />
+
+<EditForm Model="form" OnValidSubmit="SaveAsync" FormName="clasa" class="row g-2 align-items-end mb-3">
+    <DataAnnotationsValidator />
+    <div class="col-auto"><label class="form-label">Nume</label><InputText class="form-control" @bind-Value="form.Name" /></div>
+    <div class="col-auto"><label class="form-label">Clasa (5–12)</label><InputNumber class="form-control" @bind-Value="form.Grade" /></div>
+    <div class="col-auto"><label class="form-label">Elevi</label><InputNumber class="form-control" @bind-Value="form.StudentCount" /></div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">@(form.Id == 0 ? "Adaugă" : "Salvează")</button>
+        @if (form.Id != 0) { <button type="button" class="btn btn-secondary ms-1" @onclick="New">Renunță</button> }
+    </div>
+    <ValidationSummary class="col-12" />
+</EditForm>
+
+<table class="table table-sm">
+    <thead><tr><th>Nume</th><th>Clasa</th><th>Elevi</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var c in items)
+        {
+            <tr>
+                <td>@c.Name</td><td>@c.Grade</td><td>@c.StudentCount</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(c)">Editează</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(c.Id)">Șterge</button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    List<SchoolClass> items = [];
+    SchoolClass form = new();
+    string? error;
+    bool invalidated;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    async Task LoadAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        items = await db.Classes.AsNoTracking().OrderBy(x => x.Grade).ThenBy(x => x.Name).ToListAsync();
+    }
+
+    void New() => form = new();
+    void Edit(SchoolClass c) => form = new() { Id = c.Id, Name = c.Name, Grade = c.Grade, StudentCount = c.StudentCount };
+
+    async Task SaveAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        (error, invalidated) = await db.UpsertAsync(form.Id, form);
+        if (error == null) { New(); await LoadAsync(); }
+    }
+
+    async Task DeleteAsync(int id)
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        (error, invalidated) = await db.DeleteAsync<SchoolClass>(id);
+        await LoadAsync();
+    }
+}

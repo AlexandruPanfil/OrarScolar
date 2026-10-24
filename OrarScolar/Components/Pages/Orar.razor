@@ -1,0 +1,72 @@
+@page "/orar"
+@inject IDbContextFactory<AppDb> Factory
+
+<PageTitle>Orar</PageTitle>
+<h1>Orar</h1>
+
+@if (view == null)
+{
+    <p>Nu există un orar generat.</p>
+}
+else if (problem != null)
+{
+    <div class="alert alert-warning">@problem</div>
+    <p><a href="orar">Înapoi la orar</a></p>
+}
+else
+{
+    <ul class="nav nav-tabs mb-3">
+        @foreach (var t in new[] { Tip.Clasa, Tip.Profesor, Tip.Sala })
+        {
+            <li class="nav-item"><a class="nav-link @(t == tip ? "active" : "")" href="orar?tip=@OrarView.TipParam(t)">@OrarView.TipLabel(t)</a></li>
+        }
+    </ul>
+
+    <form method="get" action="orar" class="d-flex gap-2 align-items-center mb-3">
+        <input type="hidden" name="tip" value="@OrarView.TipParam(tip)" />
+        <select name="id" class="form-select w-auto">
+            @foreach (var (eid, name) in view.Entities(tip))
+            {
+                <option value="@eid" selected="@(eid == gridId)">@name</option>
+            }
+        </select>
+        <button type="submit" class="btn btn-primary">Afișează</button>
+        <a class="btn btn-outline-secondary" href="export/pdf?tip=@OrarView.TipParam(tip)&id=@gridId" download data-enhance-nav="false">PDF</a>
+        <a class="btn btn-outline-secondary" href="export/pdf?tip=@OrarView.TipParam(tip)" download data-enhance-nav="false">PDF (toate @OrarView.TipLabel(tip).ToLowerInvariant())</a>
+        <a class="btn btn-outline-secondary" href="export/excel" download data-enhance-nav="false">Excel (tot orarul)</a>
+    </form>
+
+    @if (model != null)
+    {
+        <h2 class="h4">@model.Title</h2>
+        <OrarGrid Model="model" />
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "tip")] public string? TipQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "id")] public string? IdQuery { get; set; }
+
+    OrarView? view;
+    Tip tip;
+    int gridId;
+    OrarGridModel? model;
+    string? problem;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        view = await OrarView.LoadAsync(db);
+        if (view == null) return;
+        problem = null;
+        if (TipQuery != null && !OrarView.TryParseTip(TipQuery, out tip)) { problem = "Tip de orar necunoscut. Folosiți clasa, profesor sau sala."; return; }
+        if (TipQuery == null) tip = Tip.Clasa;
+        var entities = view.Entities(tip);
+        if (entities.Count == 0) { problem = $"Nu există {OrarView.TipLabel(tip).ToLowerInvariant()}."; return; }
+        int id = entities[0].Id;
+        if (IdQuery != null && !int.TryParse(IdQuery, out id)) { problem = "Id invalid."; return; }
+        model = view.Grid(tip, id);
+        gridId = id;
+        if (model == null) problem = $"Nu există {OrarView.TipParam(tip)} cu id-ul {id}.";
+    }
+}

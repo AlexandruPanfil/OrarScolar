@@ -1,0 +1,76 @@
+@page "/sali"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IDbContextFactory<AppDb> Factory
+
+<PageTitle>Săli</PageTitle>
+<h1>Săli</h1>
+
+<SaveStatus Error="@error" Invalidated="@invalidated" />
+
+<EditForm Model="form" OnValidSubmit="SaveAsync" FormName="sala" class="row g-2 align-items-end mb-3">
+    <DataAnnotationsValidator />
+    <div class="col-auto"><label class="form-label">Nume</label><InputText class="form-control" @bind-Value="form.Name" /></div>
+    <div class="col-auto"><label class="form-label">Capacitate</label><InputNumber class="form-control" @bind-Value="form.Capacity" /></div>
+    <div class="col-auto">
+        <label class="form-label">Tip</label>
+        <InputSelect class="form-select" @bind-Value="form.RoomType">
+            @foreach (var t in Enum.GetValues<RoomType>()) { <option value="@t">@t.Ro()</option> }
+        </InputSelect>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">@(form.Id == 0 ? "Adaugă" : "Salvează")</button>
+        @if (form.Id != 0) { <button type="button" class="btn btn-secondary ms-1" @onclick="New">Renunță</button> }
+    </div>
+    <ValidationSummary class="col-12" />
+</EditForm>
+
+<p class="text-muted">@items.Count săli (maxim 64).</p>
+<table class="table table-sm">
+    <thead><tr><th>Nume</th><th>Tip</th><th>Capacitate</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var r in items)
+        {
+            <tr>
+                <td>@r.Name</td><td>@r.RoomType.Ro()</td><td>@r.Capacity</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(r)">Editează</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(r.Id)">Șterge</button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    List<Room> items = [];
+    Room form = new();
+    string? error;
+    bool invalidated;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    async Task LoadAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        items = await db.Rooms.AsNoTracking().OrderBy(x => x.RoomType).ThenBy(x => x.Name).ToListAsync();
+    }
+
+    void New() => form = new();
+    void Edit(Room r) => form = new() { Id = r.Id, Name = r.Name, Capacity = r.Capacity, RoomType = r.RoomType };
+
+    async Task SaveAsync()
+    {
+        if (form.Id == 0 && items.Count >= 64) { error = "Sunt suportate maxim 64 de săli."; return; }
+        await using var db = await Factory.CreateDbContextAsync();
+        (error, invalidated) = await db.UpsertAsync(form.Id, form);
+        if (error == null) { New(); await LoadAsync(); }
+    }
+
+    async Task DeleteAsync(int id)
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        (error, invalidated) = await db.DeleteAsync<Room>(id);
+        await LoadAsync();
+    }
+}

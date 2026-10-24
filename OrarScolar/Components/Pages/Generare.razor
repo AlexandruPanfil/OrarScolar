@@ -1,0 +1,203 @@
+@page "/generare"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+@using System.Text.Json
+@inject IDbContextFactory<AppDb> Factory
+
+<PageTitle>Generare</PageTitle>
+<h1>Generare orar</h1>
+
+<div class="row g-2 mb-3">
+    <div class="col-auto"><label class="form-label">Seed</label><input type="number" class="form-control" @bind="seed" disabled="@running" /></div>
+    <div class="col-auto"><label class="form-label">Populație</label><input type="number" class="form-control" @bind="population" disabled="@running" /></div>
+    <div class="col-auto"><label class="form-label">Generații</label><input type="number" class="form-control" @bind="generations" disabled="@running" /></div>
+    <div class="col-auto"><label class="form-label">Crossover</label><input type="number" step="0.05" class="form-control" @bind="crossover" disabled="@running" /></div>
+    <div class="col-auto"><label class="form-label">Mutație</label><input type="number" step="0.05" class="form-control" @bind="mutation" disabled="@running" /></div>
+    <div class="col-auto"><label class="form-label">Termen limită (s, 0 = fără)</label><input type="number" class="form-control" @bind="deadlineSec" disabled="@(running || reproducible)" /></div>
+</div>
+<div class="mb-3 d-flex flex-wrap gap-3">
+    <label><input type="checkbox" class="form-check-input" @bind="reproducible" disabled="@running" /> Reproductibil (fără termen limită)</label>
+    <label><input type="checkbox" class="form-check-input" @bind="useAc3" disabled="@running" /> AC-3</label>
+    <label><input type="checkbox" class="form-check-input" @bind="useFc" disabled="@running" /> Forward checking</label>
+    <label><input type="checkbox" class="form-check-input" @bind="useMrv" disabled="@running" /> MRV</label>
+    <label><input type="checkbox" class="form-check-input" @bind="useLcv" disabled="@running" /> LCV</label>
+</div>
+
+<div class="mb-3">
+    <button class="btn btn-primary" disabled="@running" @onclick="GenerateAsync">Generează</button>
+    <button class="btn btn-outline-danger" disabled="@(!running)" @onclick="Cancel">Anulează</button>
+    <button class="btn btn-outline-secondary ms-3" disabled="@running" @onclick="CompareAsync">Comparație algoritmi</button>
+    <input type="number" class="form-control d-inline-block w-auto ms-1" @bind="compareCap" disabled="@running" title="Limită noduri" />
+</div>
+
+@if (running) { <div class="alert alert-secondary">@(progress ?? "Se pornește…")</div> }
+@if (message != null) { <div class="alert alert-info">@message</div> }
+
+@if (result != null)
+{
+    <h2 class="h5">Rezultat: @StatusRo(result.Status)</h2>
+    @if (result.Errors.Count > 0)
+    {
+        <ul class="text-danger">@foreach (var e in result.Errors) { <li>@e</li> }</ul>
+    }
+    <table class="table table-sm w-auto">
+        <tr><th>Noduri backtracking</th><td>@result.BtNodes.ToString("N0")</td></tr>
+        <tr><th>Reveniri</th><td>@result.BtBacktracks.ToString("N0")</td></tr>
+        <tr><th>Timp backtracking</th><td>@result.BtMs ms</td></tr>
+        <tr><th>Timp total</th><td>@result.ElapsedMs ms</td></tr>
+        @if (result.Status == PipelineStatus.Success)
+        {
+            <tr><th>Fitness înainte (BT)</th><td>@result.SoftBefore</td></tr>
+            <tr><th>Fitness după (GA)</th><td>@result.SoftAfter</td></tr>
+            <tr><th>Generații</th><td>@result.Generations (oprit: @StopRo(result.StoppedBy))</td></tr>
+        }
+    </table>
+    @if (result.Before is { } b && result.After is { } a)
+    {
+        <table class="table table-sm w-auto">
+            <thead><tr><th>Termen</th><th>Pondere</th><th>Înainte</th><th>După</th></tr></thead>
+            <tr><td>Ferestre clasă</td><td>@Weights.ClassGap</td><td>@b.ClassGaps</td><td>@a.ClassGaps</td></tr>
+            <tr><td>Ferestre profesor</td><td>@Weights.TeacherGap</td><td>@b.TeacherGaps</td><td>@a.TeacherGaps</td></tr>
+            <tr><td>Materii dificile după ora 4</td><td>@Weights.LateDifficult</td><td>@b.LateDifficult</td><td>@a.LateDifficult</td></tr>
+            <tr><td>Ore în afara preferințelor</td><td>@Weights.OutsidePreferred</td><td>@b.OutsidePreferred</td><td>@a.OutsidePreferred</td></tr>
+            <tr><td>Dezechilibru zilnic</td><td>@Weights.Imbalance</td><td>@b.Imbalance</td><td>@a.Imbalance</td></tr>
+        </table>
+    }
+}
+
+@if (rows != null)
+{
+    <h2 class="h5">Comparație algoritmi (limită egală: @compareCap.ToString("N0") noduri)</h2>
+    <table class="table table-sm w-auto">
+        <thead><tr><th>Variantă</th><th>Status</th><th>Noduri</th><th>Reveniri</th><th>ms</th><th></th></tr></thead>
+        @foreach (var r in rows)
+        {
+            <tr><td>@r.Variant</td><td>@BtRo(r.Status)</td><td>@r.Nodes.ToString("N0")</td><td>@r.Backtracks.ToString("N0")</td><td>@r.Ms</td><td>@r.Note</td></tr>
+        }
+    </table>
+}
+
+@code {
+    int seed = 1, population = 60, generations = 500, deadlineSec = 60;
+    double crossover = 0.8, mutation = 0.3;
+    bool reproducible, useAc3 = true, useFc = true, useMrv = true, useLcv = true;
+    long compareCap = 200_000;
+
+    bool running, disposed;
+    CancellationTokenSource? cts;
+    string? progress, message;
+    PipelineResult? result;
+    List<Backtracking.CompareRow>? rows;
+    long lastRender;
+
+    void OnProgress(string text)
+    {
+        progress = text;
+        long now = Environment.TickCount64;
+        if (now - lastRender < 200) return; // ≥200 ms between renders
+        lastRender = now;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    async Task GenerateAsync()
+    {
+        if (!await AppDb.GenerationGate.WaitAsync(0)) { message = "O generare rulează deja."; return; }
+        running = true; message = null; result = null; progress = null;
+        cts = new CancellationTokenSource();
+        var ct = cts.Token;
+        try
+        {
+            long vStart; SolverInput input;
+            await using (var db = await Factory.CreateDbContextAsync())
+            {
+                var (v, data) = await db.LoadSnapshotAsync(ct);
+                vStart = v; input = SolverInput.FromEntities(data);
+            }
+            var opts = new PipelineOptions
+            {
+                Bt = new BtOptions { UseAc3 = useAc3, UseForwardChecking = useFc, UseMrv = useMrv, UseLcv = useLcv, Seed = seed },
+                Ga = new GaOptions { Population = Math.Max(4, population), Generations = Math.Max(0, generations), Crossover = crossover, Mutation = mutation, Seed = seed },
+                Deadline = TimeSpan.FromSeconds(Math.Max(0, deadlineSec)),
+                Reproducible = reproducible,
+            };
+            var r = await Task.Run(() => Pipeline.Run(input, opts, ct, OnProgress), ct);
+            if (disposed) return;
+            result = r;
+            if (ct.IsCancellationRequested || r.Status == PipelineStatus.Cancelled) { message = "Generarea a fost anulată. Nu s-a salvat nimic."; return; }
+            if (r.Status != PipelineStatus.Success) { message = "Orarul nu a fost salvat."; return; }
+            var t = new Timetable
+            {
+                CreatedAt = DateTime.UtcNow, Seed = seed, OptionsJson = JsonSerializer.Serialize(opts),
+                FitnessBefore = r.SoftBefore, FitnessAfter = r.SoftAfter, BtNodes = r.BtNodes, ElapsedMs = r.ElapsedMs,
+                StoppedBy = r.StoppedBy, Entries = input.ToEntries(r.SlotOf, r.RoomOf),
+            };
+            await using var db2 = await Factory.CreateDbContextAsync();
+            message = await db2.SaveTimetableAsync(t, vStart, ct)
+                ? "Orarul a fost salvat."
+                : "Datele s-au modificat în timpul generării. Orarul nu a fost salvat.";
+        }
+        catch (OperationCanceledException)
+        {
+            if (!disposed) message = "Generarea a fost anulată. Nu s-a salvat nimic.";
+        }
+        finally
+        {
+            AppDb.GenerationGate.Release();
+            var c = cts; cts = null; c?.Dispose();
+            running = false;
+        }
+    }
+
+    async Task CompareAsync()
+    {
+        if (!await AppDb.GenerationGate.WaitAsync(0)) { message = "O generare rulează deja."; return; }
+        running = true; message = null; rows = null; progress = "Comparație în curs…";
+        cts = new CancellationTokenSource();
+        var ct = cts.Token;
+        try
+        {
+            SolverInput input;
+            await using (var db = await Factory.CreateDbContextAsync()) input = SolverInput.FromEntities((await db.LoadSnapshotAsync(ct)).Data);
+            var cap = Math.Max(1, compareCap);
+            var r = await Task.Run(() => Backtracking.Compare(input, cap, ct), ct);
+            if (!disposed) rows = r;
+        }
+        catch (OperationCanceledException) { if (!disposed) message = "Comparația a fost anulată."; }
+        finally
+        {
+            AppDb.GenerationGate.Release();
+            var c = cts; cts = null; c?.Dispose();
+            running = false;
+        }
+    }
+
+    void Cancel() => cts?.Cancel();
+
+    public void Dispose() { disposed = true; cts?.Cancel(); }
+
+    static string StatusRo(PipelineStatus s) => s switch
+    {
+        PipelineStatus.Success => "Succes",
+        PipelineStatus.InvalidInput => "Date invalide",
+        PipelineStatus.Unsatisfiable => "Fără soluție (nesatisfiabil)",
+        PipelineStatus.LimitReached => "Limită atinsă (noduri sau timp)",
+        _ => "Anulat",
+    };
+
+    static string BtRo(BtStatus s) => s switch
+    {
+        BtStatus.Success => "Succes",
+        BtStatus.Unsatisfiable => "Nesatisfiabil",
+        BtStatus.LimitReached => "Limită atinsă",
+        _ => "Anulat",
+    };
+
+    static string StopRo(string s) => s switch
+    {
+        nameof(GaStop.Generations) => "numărul de generații",
+        nameof(GaStop.Stagnation) => "stagnare",
+        nameof(GaStop.Deadline) => "termen limită",
+        _ => s,
+    };
+}

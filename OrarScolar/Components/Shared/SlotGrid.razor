@@ -1,0 +1,25 @@
+@* 5×7 checkbox grid bound to a slot bitmask (bit = day*7 + period). *@
+<table class="table table-sm table-bordered w-auto text-center slot-grid">
+    <thead><tr><th></th>@foreach (var d in Slots.DayNames) { <th>@d</th> }</tr></thead>
+    <tbody>
+        @for (int p = 0; p < Slots.Periods; p++)
+        {
+            int per = p;
+            <tr>
+                <th>@(per + 1)</th>
+                @for (int d = 0; d < Slots.Days; d++)
+                {
+                    int s = d * Slots.Periods + per;
+                    <td><input type="checkbox" class="form-check-input" checked="@((Mask >> s & 1) != 0)" @onchange="e => Toggle(s, (bool)e.Value!)" /></td>
+                }
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    [Parameter] public long Mask { get; set; }
+    [Parameter] public EventCallback<long> MaskChanged { get; set; }
+
+    Task Toggle(int s, bool on) => MaskChanged.InvokeAsync(on ? Mask | 1L << s : Mask & ~(1L << s));
+}

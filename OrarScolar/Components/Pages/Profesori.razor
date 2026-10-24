@@ -1,0 +1,75 @@
+@page "/profesori"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IDbContextFactory<AppDb> Factory
+
+<PageTitle>Profesori</PageTitle>
+<h1>Profesori</h1>
+
+<SaveStatus Error="@error" Invalidated="@invalidated" />
+
+<EditForm Model="form" OnValidSubmit="SaveAsync" FormName="profesor" class="mb-3">
+    <DataAnnotationsValidator />
+    <div class="row g-2 align-items-end">
+        <div class="col-auto"><label class="form-label">Nume</label><InputText class="form-control" @bind-Value="form.Name" /></div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">@(form.Id == 0 ? "Adaugă" : "Salvează")</button>
+            @if (form.Id != 0) { <button type="button" class="btn btn-secondary ms-1" @onclick="New">Renunță</button> }
+        </div>
+    </div>
+    <ValidationSummary />
+    <div class="d-flex flex-wrap gap-4 mt-2">
+        <div><h2 class="h6">Indisponibilitate</h2><SlotGrid @bind-Mask="form.UnavailableMask" /></div>
+        <div><h2 class="h6">Preferințe (opțional)</h2><SlotGrid @bind-Mask="form.PreferredMask" /></div>
+    </div>
+</EditForm>
+
+<table class="table table-sm">
+    <thead><tr><th>Nume</th><th>Sloturi indisponibile</th><th>Sloturi preferate</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var t in items)
+        {
+            <tr>
+                <td>@t.Name</td>
+                <td>@Slots.Pop((ulong)t.UnavailableMask & Slots.All)</td>
+                <td>@Slots.Pop((ulong)t.PreferredMask & Slots.All)</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(t)">Editează</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(t.Id)">Șterge</button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    List<Teacher> items = [];
+    Teacher form = new();
+    string? error;
+    bool invalidated;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    async Task LoadAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        items = await db.Teachers.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+    }
+
+    void New() => form = new();
+    void Edit(Teacher t) => form = new() { Id = t.Id, Name = t.Name, UnavailableMask = t.UnavailableMask, PreferredMask = t.PreferredMask };
+
+    async Task SaveAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        (error, invalidated) = await db.UpsertAsync(form.Id, form);
+        if (error == null) { New(); await LoadAsync(); }
+    }
+
+    async Task DeleteAsync(int id)
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        (error, invalidated) = await db.DeleteAsync<Teacher>(id);
+        await LoadAsync();
+    }
+}

@@ -1,0 +1,40 @@
+@page "/"
+@inject IDbContextFactory<AppDb> Factory
+
+<PageTitle>Orar Școlar</PageTitle>
+
+<h1>Orar Școlar</h1>
+
+@if (view == null)
+{
+    <p>Nu există un orar generat.</p>
+}
+else
+{
+    <p class="text-muted">Orar generat la @view.Timetable.CreatedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm").</p>
+    @foreach (var tip in new[] { Tip.Clasa, Tip.Profesor, Tip.Sala })
+    {
+        <h2 class="h5 mt-3">@OrarView.TipLabel(tip)</h2>
+        <div class="d-flex flex-wrap gap-2">
+            @foreach (var (id, name) in view.Entities(tip))
+            {
+                <a class="btn btn-sm btn-outline-primary" href="orar?tip=@OrarView.TipParam(tip)&id=@id">@name</a>
+            }
+        </div>
+    }
+}
+
+<AuthorizeView>
+    <hr />
+    <AdminPanel @rendermode="InteractiveServer" />
+</AuthorizeView>
+
+@code {
+    OrarView? view;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        view = await OrarView.LoadAsync(db);
+    }
+}

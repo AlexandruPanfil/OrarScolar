@@ -1,0 +1,79 @@
+@attribute [Authorize]
+@inject IDbContextFactory<AppDb> Factory
+
+<h2 class="h4">Administrare</h2>
+<p>
+    Clase: <b>@counts[0]</b> · Profesori: <b>@counts[1]</b> · Săli: <b>@counts[2]</b> ·
+    Materii: <b>@counts[3]</b> · Asignări: <b>@counts[4]</b>
+</p>
+
+<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+    <select class="form-select w-auto" @bind="size" disabled="@busy">
+        <option value="3">Mic (3 clase)</option>
+        <option value="8">Mediu (8 clase)</option>
+        <option value="16">Real (16 clase)</option>
+    </select>
+    @if (!confirm)
+    {
+        <button class="btn btn-warning" disabled="@busy" @onclick="() => confirm = true">Generează date demo</button>
+    }
+    else
+    {
+        <span>Toate datele și orarul vor fi înlocuite. Sigur?</span>
+        <button class="btn btn-danger" disabled="@busy" @onclick="ResetAsync">Da, înlocuiește</button>
+        <button class="btn btn-secondary" disabled="@busy" @onclick="() => confirm = false">Renunță</button>
+    }
+    <button class="btn btn-outline-secondary" disabled="@busy" @onclick="ValidateAsync">Validează datele</button>
+</div>
+
+@if (message != null)
+{
+    <div class="alert @(errors.Count > 0 ? "alert-danger" : "alert-info")">
+        @message
+        @if (errors.Count > 0)
+        {
+            <ul class="mb-0">@foreach (var e in errors) { <li>@e</li> }</ul>
+        }
+    </div>
+}
+
+@code {
+    int[] counts = new int[5];
+    int size = 16;
+    bool confirm, busy;
+    string? message;
+    List<string> errors = [];
+
+    protected override Task OnInitializedAsync() => LoadCountsAsync();
+
+    async Task LoadCountsAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        counts = [await db.Classes.CountAsync(), await db.Teachers.CountAsync(), await db.Rooms.CountAsync(),
+                  await db.Subjects.CountAsync(), await db.Assignments.CountAsync()];
+    }
+
+    async Task ResetAsync()
+    {
+        confirm = false; errors = [];
+        if (!await AppDb.GenerationGate.WaitAsync(0)) { message = "O generare rulează deja."; return; }
+        busy = true;
+        try
+        {
+            var (data, _) = await Task.Run(() => SeedGenerator.Create(size));
+            await using var db = await Factory.CreateDbContextAsync();
+            await db.ReplaceAllAsync(data);
+            message = $"Date demo generate ({data.Classes.Count} clase). Orarul anterior a fost șters.";
+            await LoadCountsAsync();
+        }
+        finally { AppDb.GenerationGate.Release(); busy = false; }
+    }
+
+    async Task ValidateAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        var (_, data) = await db.LoadSnapshotAsync();
+        errors = Preprocessor.Run(SolverInput.FromEntities(data), useAc3: true).Errors;
+        message = errors.Count == 0 ? "Datele sunt valide (verificări necesare trecute)." : "Probleme găsite:";
+    }
+}

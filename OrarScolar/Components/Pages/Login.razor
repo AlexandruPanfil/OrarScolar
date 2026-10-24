@@ -1,0 +1,48 @@
+@page "/login"
+@using System.Security.Claims
+@using System.Security.Cryptography
+@using System.Text
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@inject IConfiguration Config
+@inject NavigationManager Nav
+
+<PageTitle>Autentificare</PageTitle>
+
+<h1>Autentificare administrator</h1>
+
+<EditForm Model="Input!" method="post" OnValidSubmit="LoginAsync" FormName="login" style="max-width:320px">
+    <div class="mb-3">
+        <label class="form-label" for="password">Parolă</label>
+        <InputText id="password" type="password" class="form-control" @bind-Value="Input!.Password" autocomplete="current-password" />
+    </div>
+    @if (error != null)
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+    <button type="submit" class="btn btn-primary">Intră</button>
+</EditForm>
+
+@code {
+    [CascadingParameter] HttpContext HttpContext { get; set; } = default!;
+    [SupplyParameterFromForm] LoginModel? Input { get; set; }
+    [SupplyParameterFromQuery] string? ReturnUrl { get; set; }
+    string? error;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    sealed class LoginModel { public string? Password { get; set; } }
+
+    async Task LoginAsync()
+    {
+        var expected = Config["Admin:Password"] ?? "";
+        // hash both sides so the comparison is fixed-length and constant-time; empty config password always fails
+        bool ok = expected.Length > 0 && CryptographicOperations.FixedTimeEquals(
+            SHA256.HashData(Encoding.UTF8.GetBytes(Input?.Password ?? "")), SHA256.HashData(Encoding.UTF8.GetBytes(expected)));
+        if (!ok) { error = "Parolă greșită."; return; }
+        var identity = new ClaimsIdentity([new Claim(ClaimTypes.Name, "admin")], CookieAuthenticationDefaults.AuthenticationScheme);
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
+        var target = ReturnUrl is { } r && r.StartsWith('/') && !r.StartsWith("//") && !r.StartsWith("/\\") ? r : "/";
+        Nav.NavigateTo(target, forceLoad: true);
+    }
+}

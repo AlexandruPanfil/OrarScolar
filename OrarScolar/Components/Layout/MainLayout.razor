@@ -1,0 +1,33 @@
+@inherits LayoutComponentBase
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="top-row px-4">
+            <AuthorizeView>
+                <Authorized>
+                    <form method="post" action="logout" class="d-inline">
+                        <AntiforgeryToken />
+                        <button type="submit" class="btn btn-link">Ieșire</button>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <a href="login">Autentificare</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    A apărut o eroare.
+    <a href="." class="reload">Reîncarcă</a>
+    <span class="dismiss">🗙</span>
+</div>

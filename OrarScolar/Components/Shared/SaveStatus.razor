@@ -1,0 +1,13 @@
+@if (Error != null)
+{
+    <div class="alert alert-danger">@Error</div>
+}
+else if (Invalidated)
+{
+    <div class="alert alert-warning">Orarul curent a fost invalidat. Generați un orar nou.</div>
+}
+
+@code {
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public bool Invalidated { get; set; }
+}

@@ -1,0 +1,110 @@
+@page "/plan-cadru"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IDbContextFactory<AppDb> Factory
+
+<PageTitle>Plan-cadru</PageTitle>
+<h1>Plan-cadru</h1>
+
+<div class="mb-3">
+    <label class="form-label">Clasa</label>
+    <select class="form-select w-auto" value="@classId" @onchange="e => SelectClassAsync(int.Parse((string)e.Value!))">
+        <option value="0">— alegeți —</option>
+        @foreach (var c in classes) { <option value="@c.Id">@c.Name</option> }
+    </select>
+</div>
+
+<SaveStatus Error="@error" Invalidated="@invalidated" />
+
+@if (classId != 0)
+{
+    var total = items.Sum(a => a.HoursPerWeek);
+    <p>Total: <b class="@(total > Slots.Count ? "text-danger" : "")">@total</b> / @Slots.Count ore pe săptămână.</p>
+
+    <EditForm Model="form" OnValidSubmit="SaveAsync" FormName="asignare" class="row g-2 align-items-end mb-3">
+        <DataAnnotationsValidator />
+        <div class="col-auto">
+            <label class="form-label">Materie</label>
+            <InputSelect class="form-select" @bind-Value="form.SubjectId">
+                <option value="0">—</option>
+                @foreach (var s in subjects) { <option value="@s.Id">@s.Name</option> }
+            </InputSelect>
+        </div>
+        <div class="col-auto">
+            <label class="form-label">Profesor</label>
+            <InputSelect class="form-select" @bind-Value="form.TeacherId">
+                <option value="0">—</option>
+                @foreach (var t in teachers) { <option value="@t.Id">@t.Name</option> }
+            </InputSelect>
+        </div>
+        <div class="col-auto"><label class="form-label">Ore/săpt.</label><InputNumber class="form-control" @bind-Value="form.HoursPerWeek" /></div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">@(form.Id == 0 ? "Adaugă" : "Salvează")</button>
+            @if (form.Id != 0) { <button type="button" class="btn btn-secondary ms-1" @onclick="New">Renunță</button> }
+        </div>
+        <ValidationSummary class="col-12" />
+    </EditForm>
+
+    <table class="table table-sm">
+        <thead><tr><th>Materie</th><th>Profesor</th><th>Ore</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var a in items)
+            {
+                <tr>
+                    <td>@subjects.FirstOrDefault(s => s.Id == a.SubjectId)?.Name</td>
+                    <td>@teachers.FirstOrDefault(t => t.Id == a.TeacherId)?.Name</td>
+                    <td>@a.HoursPerWeek</td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(a)">Editează</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(a.Id)">Șterge</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    List<SchoolClass> classes = [];
+    List<Subject> subjects = [];
+    List<Teacher> teachers = [];
+    List<Assignment> items = [];
+    Assignment form = new();
+    int classId;
+    string? error;
+    bool invalidated;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        classes = await db.Classes.AsNoTracking().OrderBy(x => x.Grade).ThenBy(x => x.Name).ToListAsync();
+        subjects = await db.Subjects.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+        teachers = await db.Teachers.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+    }
+
+    async Task SelectClassAsync(int id) { classId = id; error = null; invalidated = false; New(); await LoadAsync(); }
+
+    async Task LoadAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        items = await db.Assignments.AsNoTracking().Where(a => a.ClassId == classId).OrderBy(a => a.Id).ToListAsync();
+    }
+
+    void New() => form = new() { ClassId = classId };
+    void Edit(Assignment a) => form = new() { Id = a.Id, ClassId = a.ClassId, SubjectId = a.SubjectId, TeacherId = a.TeacherId, HoursPerWeek = a.HoursPerWeek };
+
+    async Task SaveAsync()
+    {
+        if (form.SubjectId == 0 || form.TeacherId == 0) { error = "Alegeți materia și profesorul."; return; }
+        await using var db = await Factory.CreateDbContextAsync();
+        (error, invalidated) = await db.UpsertAsync(form.Id, form);
+        if (error == null) { New(); await LoadAsync(); }
+    }
+
+    async Task DeleteAsync(int id)
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        (error, invalidated) = await db.DeleteAsync<Assignment>(id);
+        await LoadAsync();
+    }
+}

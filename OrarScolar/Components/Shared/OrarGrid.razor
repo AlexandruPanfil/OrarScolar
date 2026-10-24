@@ -1,0 +1,27 @@
+@* 5×7 timetable grid; Model.Cells[slot] = lines. *@
+<table class="table table-bordered orar-grid">
+    <thead><tr><th style="width:7rem">Ora</th>@foreach (var d in Slots.DayNames) { <th>@d</th> }</tr></thead>
+    <tbody>
+        @for (int p = 0; p < Slots.Periods; p++)
+        {
+            <tr>
+                <th>@(p + 1)<div class="small fw-normal text-muted text-nowrap">@BellSchedule.Current.Label(p)</div></th>
+                @for (int d = 0; d < Slots.Days; d++)
+                {
+                    var lines = Model.Cells[d * Slots.Periods + p];
+                    <td>
+                        @for (int k = 0; k < lines.Length; k++)
+                        {
+                            if (k % 3 == 0) { <div class="fw-semibold">@lines[k]</div> }
+                            else { <div class="small text-muted">@lines[k]</div> }
+                        }
+                    </td>
+                }
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    [Parameter, EditorRequired] public OrarGridModel Model { get; set; } = default!;
+}
