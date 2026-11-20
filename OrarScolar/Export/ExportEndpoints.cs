@@ -3,7 +3,7 @@ using OrarScolar.Data;
 
 namespace OrarScolar.Export;
 
-/// <summary>Public export endpoints (GET /export/pdf?tip=&amp;id=, GET /export/excel).</summary>
+/// <summary>Export endpoints: public GET /export/pdf?tip=&amp;id=, GET /export/excel; admin-only GET /export/date.</summary>
 public static class ExportEndpoints
 {
     const string NoTimetable = "Nu există un orar generat";
@@ -32,5 +32,13 @@ public static class ExportEndpoints
         var v = await OrarView.LoadAsync(db);
         if (v == null) return TypedResults.NotFound(NoTimetable);
         return TypedResults.File(ExcelExport.Build(v), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "orar.xlsx");
+    }
+
+    /// <summary>The school's input data as an editable workbook (also the import template). Admin only.</summary>
+    public static async Task<IResult> SchoolDataXlsx(IDbContextFactory<AppDb> factory)
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        var (_, data) = await db.LoadSnapshotAsync();
+        return TypedResults.File(DataWorkbook.Write(SchoolImport.ToSheets(data)), DataWorkbook.ContentType, "date-scoala.xlsx");
     }
 }

@@ -1,0 +1,151 @@
+@page "/experimente"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Experimente</PageTitle>
+<h1>Experimente</h1>
+<p class="text-muted">
+    Evaluarea algoritmilor pe școli generate automat de dimensiuni diferite (aceleași date de fiecare dată, fără termen limită).
+    Datele introduse în aplicație și orarul salvat nu sunt modificate.
+</p>
+
+<div class="row g-2 mb-3 align-items-end">
+    <div class="col-auto"><label class="form-label">Instanțe pe dimensiune</label><input type="number" min="1" max="10" class="form-control" @bind="runs" disabled="@running" /></div>
+    <div class="col-auto"><label class="form-label">Limită noduri backtracking</label><input type="number" class="form-control" @bind="nodeCap" disabled="@running" /></div>
+    <div class="col-auto"><label class="form-label">Generații GA</label><input type="number" class="form-control" @bind="generations" disabled="@running" /></div>
+    <div class="col-auto">
+        <label class="me-2"><input type="checkbox" class="form-check-input" @bind="s3" disabled="@running" /> 3 clase</label>
+        <label class="me-2"><input type="checkbox" class="form-check-input" @bind="s8" disabled="@running" /> 8 clase</label>
+        <label><input type="checkbox" class="form-check-input" @bind="s16" disabled="@running" /> 16 clase</label>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-primary" disabled="@running" @onclick="RunAsync">Rulează</button>
+        <button class="btn btn-outline-danger" disabled="@(!running)" @onclick="Cancel">Anulează</button>
+    </div>
+</div>
+
+@if (running) { <div class="alert alert-secondary">@(progress ?? "Se pornește…")</div> }
+@if (message != null) { <div class="alert alert-info">@message</div> }
+
+@if (result != null)
+{
+    <h2 class="h5">1. Contribuția tehnicilor de propagare (aceeași limită: @nodeCapUsed.ToString("N0") noduri)</h2>
+    <table class="table table-sm w-auto">
+        <thead><tr><th>Clase</th><th>Variantă</th><th>Rezolvate</th><th>Noduri (medie)</th><th>Reveniri (medie)</th><th>ms (medie)</th></tr></thead>
+        @foreach (var b in result.Bt)
+        {
+            <tr class="@(b.Variant.StartsWith("AC-3") ? "fw-bold" : "")">
+                <td>@b.Size</td><td>@b.Variant</td><td>@b.Solved / @b.Runs</td>
+                <td>@b.AvgNodes.ToString("N0")</td><td>@b.AvgBacktracks.ToString("N0")</td><td>@b.AvgMs.ToString("N1")</td>
+            </tr>
+        }
+    </table>
+
+    <h2 class="h5">2. Optimizarea genetică (fitness: mai mic = mai bun)</h2>
+    <table class="table table-sm w-auto">
+        <thead><tr><th>Clase</th><th>Lecții</th><th>Fitness BT</th><th>Fitness GA</th><th>Îmbunătățire</th><th>Timp BT</th><th>Timp GA</th><th>Generații</th></tr></thead>
+        @foreach (var g in result.Ga)
+        {
+            <tr>
+                <td>@g.Size</td><td>@g.Lessons</td><td>@g.AvgSoftBefore.ToString("N0")</td><td>@g.AvgSoftAfter.ToString("N0")</td>
+                <td>@g.AvgImprovementPct.ToString("N1") %</td><td>@g.AvgBtMs.ToString("N0") ms</td><td>@g.AvgGaMs.ToString("N0") ms</td><td>@g.AvgGenerations.ToString("N0")</td>
+            </tr>
+        }
+    </table>
+    <table class="table table-sm w-auto">
+        <thead><tr><th>Clase</th><th>Ferestre clasă</th><th>Ferestre profesor</th><th>Dificile după ora 4</th><th>În afara preferințelor</th><th>Dezechilibru</th></tr></thead>
+        @foreach (var g in result.Ga)
+        {
+            var (b, a) = (g.AvgBefore!, g.AvgAfter!);
+            <tr><td>@g.Size</td><td>@b.ClassGaps → @a.ClassGaps</td><td>@b.TeacherGaps → @a.TeacherGaps</td><td>@b.LateDifficult → @a.LateDifficult</td><td>@b.OutsidePreferred → @a.OutsidePreferred</td><td>@b.Imbalance → @a.Imbalance</td></tr>
+        }
+    </table>
+
+    @if (chart != null)
+    {
+        <h2 class="h5">3. Convergența algoritmului genetic (@result.ConvergenceSize clase, instanța 1)</h2>
+        @((MarkupString)chart!)
+    }
+
+    <h2 class="h5 mt-3">Date pentru raport (CSV, separator „;”)</h2>
+    <textarea class="form-control font-monospace small" rows="10" readonly>@csv</textarea>
+}
+
+@code {
+    const int W = 640, H = 220;
+    int runs = 3, generations = 500;
+    long nodeCap = 200_000, nodeCapUsed;
+    bool s3 = true, s8 = true, s16 = true;
+    bool running, disposed;
+    string? progress, message, csv, chart;
+    ExperimentResult? result;
+    CancellationTokenSource? cts;
+    long lastRender;
+
+    void OnProgress(string text)
+    {
+        progress = text;
+        long now = Environment.TickCount64;
+        if (now - lastRender < 200) return;
+        lastRender = now;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    async Task RunAsync()
+    {
+        int[] sizes = [.. new[] { (s3, 3), (s8, 8), (s16, 16) }.Where(p => p.Item1).Select(p => p.Item2)];
+        if (sizes.Length == 0) { message = "Alegeți cel puțin o dimensiune."; return; }
+        if (!await AppDb.GenerationGate.WaitAsync(0)) { message = "O generare rulează deja."; return; }
+        running = true; message = null; result = null; progress = null;
+        cts = new CancellationTokenSource();
+        var ct = cts.Token;
+        try
+        {
+            nodeCapUsed = Math.Max(1, nodeCap);
+            var o = new ExperimentOptions
+            {
+                Sizes = sizes, Runs = Math.Clamp(runs, 1, 10), NodeCap = nodeCapUsed,
+                Ga = new GaOptions { Generations = Math.Max(0, generations) },
+            };
+            var r = await Task.Run(() => Experiments.Run(o, ct, OnProgress), ct);
+            if (disposed) return;
+            result = r;
+            csv = Experiments.ToCsv(r);
+            BuildChart(r.Convergence);
+        }
+        catch (OperationCanceledException) { if (!disposed) message = "Experimentul a fost anulat."; }
+        finally
+        {
+            AppDb.GenerationGate.Release();
+            var c = cts; cts = null; c?.Dispose();
+            running = false;
+        }
+    }
+
+    /// <summary>Inline SVG line chart of the best fitness per generation (built as a string: Razor treats &lt;text&gt; specially).</summary>
+    void BuildChart(List<int> h)
+    {
+        chart = null;
+        if (h.Count < 2) return;
+        int minY = h.Min(), maxY = h.Max();
+        double span = Math.Max(1, maxY - minY);
+        var pts = string.Join(" ", h.Select((v, i) =>
+            FormattableString.Invariant($"{50 + i * (double)W / (h.Count - 1):0.#},{10 + (maxY - v) / span * H:0.#}")));
+        chart = FormattableString.Invariant($"""
+            <svg viewBox="0 0 {W + 60} {H + 40}" style="max-width:720px;width:100%" role="img" aria-label="Convergența algoritmului genetic">
+              <line x1="50" y1="10" x2="50" y2="{H + 10}" stroke="currentColor" stroke-width="1"/>
+              <line x1="50" y1="{H + 10}" x2="{W + 50}" y2="{H + 10}" stroke="currentColor" stroke-width="1"/>
+              <text x="45" y="16" text-anchor="end" font-size="11" fill="currentColor">{maxY}</text>
+              <text x="45" y="{H + 10}" text-anchor="end" font-size="11" fill="currentColor">{minY}</text>
+              <text x="50" y="{H + 28}" font-size="11" fill="currentColor">0</text>
+              <text x="{W + 50}" y="{H + 28}" text-anchor="end" font-size="11" fill="currentColor">generația {h.Count - 1}</text>
+              <polyline fill="none" stroke="#0d6efd" stroke-width="2" points="{pts}"/>
+            </svg>
+            """);
+    }
+
+    void Cancel() => cts?.Cancel();
+
+    public void Dispose() { disposed = true; cts?.Cancel(); }
+}

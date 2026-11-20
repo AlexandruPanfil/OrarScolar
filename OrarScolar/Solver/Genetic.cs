@@ -45,8 +45,9 @@ public sealed class Genetic
         this.x = x; this.o = o; this.ct = ct; this.deadline = deadline; rnd = new Random(o.Seed);
     }
 
-    public static GaResult Run(SolverInput x, int[] slotOf, int[] roomOf, GaOptions o, CancellationToken ct = default, Deadline deadline = default, Action<string>? progress = null)
-        => new Genetic(x, o, ct, deadline).Run(slotOf, roomOf, progress);
+    public static GaResult Run(SolverInput x, int[] slotOf, int[] roomOf, GaOptions o, CancellationToken ct = default, Deadline deadline = default, Action<string>? progress = null,
+        List<int>? history = null)
+        => new Genetic(x, o, ct, deadline).Run(slotOf, roomOf, progress, history);
 
     bool Stopped()
     {
@@ -56,7 +57,8 @@ public sealed class Genetic
         return stop;
     }
 
-    GaResult Run(int[] slotOf, int[] roomOf, Action<string>? progress)
+    /// <param name="history">If given, receives the best valid soft score before generation 1 and after each generation (for convergence charts).</param>
+    GaResult Run(int[] slotOf, int[] roomOf, Action<string>? progress, List<int>? history)
     {
         var sw = Stopwatch.StartNew();
         long lastReport = 0;
@@ -75,6 +77,7 @@ public sealed class Genetic
             if (ind.Hard == 0 && ind.Soft < archive.Soft) archive = ind.Clone();
         }
 
+        history?.Add(archive.Soft);
         int gen = 0, sinceImprovement = 0;
         GaStop reason = GaStop.Generations;
         for (; gen < o.Generations; gen++)
@@ -94,6 +97,7 @@ public sealed class Genetic
                 if (child.Hard == 0 && child.Soft < archive.Soft) { archive = child.Clone(); improved = true; }
             }
             pop = next;
+            history?.Add(archive.Soft);
             sinceImprovement = improved ? 0 : sinceImprovement + 1;
             if (progress != null && sw.ElapsedMilliseconds - lastReport >= 200)
             {

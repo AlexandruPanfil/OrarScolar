@@ -68,5 +68,6 @@ app.MapPost("/logout", async (HttpContext ctx, IAntiforgery af) =>
 });
 app.MapGet("/export/pdf", ExportEndpoints.Pdf);
 app.MapGet("/export/excel", ExportEndpoints.Excel);
+app.MapGet("/export/date", ExportEndpoints.SchoolDataXlsx).RequireAuthorization();
 
 app.Run();

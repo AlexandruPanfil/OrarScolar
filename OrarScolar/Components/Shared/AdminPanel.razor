@@ -1,4 +1,5 @@
 @attribute [Authorize]
+@using OrarScolar.Export
 @inject IDbContextFactory<AppDb> Factory
 
 <h2 class="h4">Administrare</h2>
@@ -26,6 +27,23 @@
     <button class="btn btn-outline-secondary" disabled="@busy" @onclick="ValidateAsync">Validează datele</button>
 </div>
 
+<h3 class="h6 mt-3">Datele reale ale școlii (Excel)</h3>
+<p class="text-muted small mb-2">
+    Descărcați datele curente (sau un șablon gol, dacă nu există date), completați foile Clase, Profesori, Materii,
+    Săli și Plan-cadru, apoi încărcați fișierul. Instrucțiunile sunt în prima foaie a fișierului.
+</p>
+<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+    <a class="btn btn-outline-secondary" href="export/date" download data-enhance-nav="false">Descarcă datele (Excel)</a>
+    <InputFile OnChange="ReadFileAsync" accept=".xlsx" class="form-control w-auto" disabled="@busy" />
+    @if (pending != null)
+    {
+        <span>Fișier valid: @pending.Classes.Count clase, @pending.Teachers.Count profesori, @pending.Rooms.Count săli,
+            @pending.Assignments.Count asignări. Toate datele și orarul vor fi înlocuite. Sigur?</span>
+        <button class="btn btn-danger" disabled="@busy" @onclick="ImportAsync">Da, importă</button>
+        <button class="btn btn-secondary" disabled="@busy" @onclick="() => pending = null">Renunță</button>
+    }
+</div>
+
 @if (message != null)
 {
     <div class="alert @(errors.Count > 0 ? "alert-danger" : "alert-info")">
@@ -43,6 +61,8 @@
     bool confirm, busy;
     string? message;
     List<string> errors = [];
+    SchoolData? pending;
+    const long MaxFileBytes = 5 * 1024 * 1024;
 
     protected override Task OnInitializedAsync() => LoadCountsAsync();
 
@@ -55,7 +75,7 @@
 
     async Task ResetAsync()
     {
-        confirm = false; errors = [];
+        confirm = false; errors = []; pending = null;
         if (!await AppDb.GenerationGate.WaitAsync(0)) { message = "O generare rulează deja."; return; }
         busy = true;
         try
@@ -65,6 +85,47 @@
             await db.ReplaceAllAsync(data);
             message = $"Date demo generate ({data.Classes.Count} clase). Orarul anterior a fost șters.";
             await LoadCountsAsync();
+        }
+        finally { AppDb.GenerationGate.Release(); busy = false; }
+    }
+
+    async Task ReadFileAsync(InputFileChangeEventArgs e)
+    {
+        pending = null; confirm = false; errors = [];
+        if (e.File.Size > MaxFileBytes) { message = "Fișierul este prea mare (maxim 5 MB)."; return; }
+        busy = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await using (var s = e.File.OpenReadStream(MaxFileBytes)) await s.CopyToAsync(ms);
+            ms.Position = 0;
+            var (sheets, readError) = await Task.Run(() => DataWorkbook.Read(ms));
+            if (sheets == null) { message = readError; return; }
+            var (data, parseErrors) = SchoolImport.Parse(sheets);
+            if (data == null) { errors = parseErrors; message = "Fișierul conține erori. Nimic nu a fost importat:"; return; }
+            pending = data;
+            message = null;
+        }
+        catch (IOException) { message = "Fișierul nu a putut fi încărcat. Încercați din nou."; }
+        finally { busy = false; }
+    }
+
+    async Task ImportAsync()
+    {
+        if (pending is not { } data) return;
+        errors = [];
+        if (!await AppDb.GenerationGate.WaitAsync(0)) { message = "O generare rulează deja."; return; }
+        busy = true;
+        try
+        {
+            await using var db = await Factory.CreateDbContextAsync();
+            await db.ReplaceAllAsync(data);
+            pending = null;
+            await LoadCountsAsync();
+            errors = Preprocessor.Run(SolverInput.FromEntities(data), useAc3: true).Errors;
+            message = errors.Count == 0
+                ? $"Date importate ({data.Classes.Count} clase). Verificările necesare au trecut; puteți genera orarul."
+                : $"Date importate ({data.Classes.Count} clase), dar orarul nu poate fi generat până nu corectați:";
         }
         finally { AppDb.GenerationGate.Release(); busy = false; }
     }
