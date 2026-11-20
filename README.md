@@ -3,7 +3,8 @@
 A school timetable generator built with Blazor Server (.NET 10) and SQLite. An admin enters
 classes, teachers, rooms, subjects and the weekly plan ("plan-cadru"). The app generates a
 timetable with no conflicts and shows it publicly per class, teacher or room, with PDF and
-Excel export. The interface is in Romanian.
+Excel export. A real school can load its data from an Excel file, and an experiments page
+measures what each algorithm contributes. The interface is in Romanian.
 
 ## Installation
 
@@ -44,6 +45,8 @@ you can pick one with `--urls http://localhost:5199`).
 | Admin | `/login` | Log in with the configured password. Logout is in the top-right corner |
 | Admin | `/clase`, `/profesori`, `/sali`, `/materii`, `/plan-cadru` | Edit the input data. For teachers you also mark unavailable and preferred slots |
 | Admin | `/generare` | Generate the timetable, cancel a run, compare the algorithms |
+| Admin | `/` (Acasă) → **Datele reale ale școlii** | Download the school data as Excel (`/export/date`), fill it in, upload it back |
+| Admin | `/experimente` | Run the algorithms on generated schools of 3, 8 and 16 classes and get tables, a convergence chart and CSV for the report |
 
 **Quick start:**
 1. Log in.
@@ -81,6 +84,30 @@ is useful for showing how much each technique helps.
 - **Reproductibil**: no time limit, so the same data and seed always give the same timetable;
 - switches for AC-3, forward checking, MRV and LCV.
 
+## Importing a real school (Excel)
+
+1. Log in and open **Acasă**. Under **Datele reale ale școlii**, press **Descarcă datele (Excel)**.
+   With no data you get an empty template; after **Generează date demo** you get a filled example.
+2. Fill in the sheets **Clase**, **Profesori**, **Materii**, **Săli** and **Plan-cadru**. The first sheet,
+   **Instrucțiuni**, explains every column. Teacher availability is written as text, for example
+   `Luni; Marți 1-3; Vineri 5-7` (a day alone means the whole day).
+3. Upload the file. Every error is reported with its sheet and row, and nothing is imported until the file
+   is clean. After you confirm, all data and the current timetable are replaced, and the necessary-condition
+   checks run at once, so you know right away whether a timetable is possible.
+
+Names are matched without regard to case or diacritics, so `Marti` and `Marți` are the same day.
+
+## Experiments (for the report)
+
+`/experimente` generates schools of 3, 8 and 16 classes (fixed data seeds, no deadline, so the numbers are
+reproducible) and shows:
+
+1. the four backtracking variants under the same node limit: how many instances each solves, nodes, backtracks, time;
+2. the genetic algorithm: fitness of the backtracking timetable vs after the GA, improvement in %, broken down by criterion;
+3. a convergence chart (best fitness per generation) for the largest size.
+
+Everything is also given as semicolon-separated CSV that can be pasted into Excel.
+
 ## Configuration
 
 `OrarScolar/appsettings.json` (or environment variables such as `Orar__LessonMinutes=60`):
@@ -111,7 +138,9 @@ The suite covers:
 - preprocessing messages, AC-3, forward checking vs plain search, and the undo logic;
 - seed data solvability, GA non-regression, and determinism;
 - staleness and atomic save on a real SQLite file;
-- exports and lesson times.
+- exports and lesson times;
+- the Excel import: text form of availability, round trip through the workbook, row-level error messages;
+- a small experiments run (the GA best score never rises, the full backtracking variant solves the instance).
 
 Every solver result is checked by an independent, naive hard-constraint checker.
 
@@ -119,9 +148,9 @@ Every solver result is checked by an independent, naive hard-constraint checker.
 
 ```
 OrarScolar/         Blazor Server app
-  Solver/           pure C# algorithms (no EF/Blazor): Preprocessor, Backtracking, Genetic, Fitness, Pipeline
-  Data/             EF Core entities, AppDb, demo data generator, timetable view, lesson times
-  Export/           PDF (QuestPDF) and Excel (ClosedXML) export
+  Solver/           pure C# algorithms (no EF/Blazor): Preprocessor, Backtracking, Genetic, Fitness, Pipeline, Experiments
+  Data/             EF Core entities, AppDb, demo data generator, Excel import rules (SchoolImport), timetable view, lesson times
+  Export/           PDF (QuestPDF) and Excel (ClosedXML) export, school data workbook (DataWorkbook)
   Components/       pages (Romanian UI)
 OrarScolar.Tests/   xUnit tests
 ```
