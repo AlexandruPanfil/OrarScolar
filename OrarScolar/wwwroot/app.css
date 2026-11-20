@@ -58,3 +58,50 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+/* school-wide timetable (/orar/general) */
+.orar-general-wrap {
+    overflow-x: auto;
+}
+
+.orar-general {
+    font-size: 0.68rem;
+    line-height: 1.15;
+    width: max-content;
+}
+
+    .orar-general td, .orar-general th {
+        min-width: 4.4rem;
+        padding: 0.2rem 0.25rem;
+        vertical-align: top;
+    }
+
+    .orar-general .cls {
+        min-width: 3.5rem;
+        position: sticky;
+        left: 0;
+        background: var(--bs-body-bg, #fff);
+        z-index: 1;
+    }
+
+    .orar-general .day-start {
+        border-left: 2px solid #6c757d;
+    }
+
+@media print {
+    .sidebar, .top-row, .no-print {
+        display: none !important;
+    }
+
+    .orar-general-wrap {
+        overflow: visible;
+    }
+
+    .orar-general {
+        font-size: 6pt;
+    }
+
+    @page {
+        size: A3 landscape;
+        margin: 8mm;
+    }
+}

@@ -40,5 +40,33 @@ public static class PdfExport
             });
     }).GeneratePdf();
 
+    /// <summary>The school-wide timetable on one A3 landscape page (for the notice board).</summary>
+    public static byte[] BuildGeneral(List<GeneralRow> rows) => Document.Create(doc =>
+        doc.Page(p =>
+        {
+            p.Size(PageSizes.A3.Landscape());
+            p.Margin(15);
+            p.DefaultTextStyle(x => x.FontSize(5.5f));
+            p.Header().PaddingBottom(6).Text("Orarul general al școlii").FontSize(14).Bold();
+            p.Content().Table(t =>
+            {
+                t.ColumnsDefinition(c => { c.ConstantColumn(34); for (int s = 0; s < Slots.Count; s++) c.RelativeColumn(); });
+                t.Header(h =>
+                {
+                    h.Cell().RowSpan(2).Element(Small).AlignMiddle().Text("Clasa").Bold();
+                    foreach (var day in Slots.DayNames) h.Cell().ColumnSpan(Slots.Periods).Element(Small).AlignCenter().Text(day).Bold().FontSize(8);
+                    for (int s = 0; s < Slots.Count; s++) h.Cell().Element(Small).AlignCenter().Text($"{s % Slots.Periods + 1}").Bold();
+                });
+                foreach (var r in rows)
+                {
+                    t.Cell().Element(Small).Text(r.ClassName).Bold().FontSize(7);
+                    foreach (var c in r.Cells)
+                        t.Cell().Element(Small).Text(c == null ? "" : $"{c.Subject}\n{c.Teacher}\n{c.Room}");
+                }
+            });
+        })).GeneratePdf();
+
+    static IContainer Small(IContainer c) => c.Border(0.4f).Padding(1.5f);
+
     static IContainer Cell(IContainer c) => c.Border(0.5f).Padding(3).MinHeight(48);
 }
