@@ -42,6 +42,7 @@ you can pick one with `--urls http://localhost:5199`).
 | Who | Where | What |
 |---|---|---|
 | Anyone | `/` (Acasă), `/orar` | View the timetable per class, teacher or room. Export it as PDF (one or all) or Excel (whole timetable) |
+| Anyone | `/orar/general` (tab **Toate clasele**) | The school-wide timetable: classes on rows, days × lessons on columns. PDF on one A3 page for the notice board, print, and a first sheet „Orar general” in the Excel export |
 | Admin | `/login` | Log in with the configured password. Logout is in the top-right corner |
 | Admin | `/clase`, `/profesori`, `/sali`, `/materii`, `/plan-cadru` | Edit the input data. For teachers you also mark unavailable and preferred slots |
 | Admin | `/generare` | Generate the timetable, cancel a run, compare the algorithms |
@@ -139,6 +140,7 @@ The suite covers:
 - seed data solvability, GA non-regression, and determinism;
 - staleness and atomic save on a real SQLite file;
 - exports and lesson times;
+- the school-wide timetable: every lesson appears once, short names stay distinct, Excel sheet and A3 PDF;
 - the Excel import: text form of availability, round trip through the workbook, row-level error messages;
 - a small experiments run (the GA best score never rises, the full backtracking variant solves the instance).
 
